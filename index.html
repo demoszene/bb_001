@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <title>Three.js Demo - Smooth GPU with MOD Player</title>
   
-  <!-- Retro-Pixel-Font für die Laufschrift laden -->
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 
   <style>
@@ -16,7 +15,6 @@
       font-family: 'Press Start 2P', monospace;
     }
 
-    /* Start-Overlay für den Vollbild-Klick & Audio-Start */
     #fullscreen-overlay {
       position: absolute;
       top: 0;
@@ -35,7 +33,6 @@
       padding: 20px;
     }
 
-    /* Fliegendes Logo oben */
     #logo-container {
       position: absolute;
       top: 20px;
@@ -58,58 +55,33 @@
     }
   </style>
 
-  <!-- External Libraries -->
+  <!-- Three.js & BassoonTracker Web Audio Engine -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <!-- Chiptune2.js Player & LibXM fuer Tracker-Module (.mod, .xm, .s3m, .it) -->
-  <script src="https://cdn.jsdelivr.net/gh/deskjet/chiptune2.js@master/libxmp.js"></script>
-  <script src="https://cdn.jsdelivr.net/gh/deskjet/chiptune2.js@master/chiptune2.js"></script>
+  <script src="https://www.steffest.uk/bassoontracker/script/bassoonplayer-min.js"></script>
 </head>
 <body>
 
-  <!-- Klick-Overlay für den Vollbild- und Musikstart -->
   <div id="fullscreen-overlay">
     CLICK ANYWHERE TO START DEMO
   </div>
 
-  <!-- Logo oben -->
   <div id="logo-container">
     <img id="flying-logo" src="BB_Logo.jpg" alt="Bonzai Bros Logo">
   </div>
 
   <script>
-    // -----------------------------------------------------------
-    // MOD Audio Player Setup
-    // -----------------------------------------------------------
     const MOD_FILE_URL = 'music.mod';
-    
-    let player = null;
-    let isAudioInitialized = false;
 
     function initAndPlayMod() {
-      if (isAudioInitialized) return;
-      isAudioInitialized = true;
-
-      player = new ChiptuneJsPlayer(new ChiptuneJsConfig({
-        repeatCount: -1 // Endlos-Schleife (-1)
-      }));
-
-      // AudioContext explizit durch die Benutzerinteraktion starten
-      if (player.context && player.context.state === 'suspended') {
-        player.context.resume();
+      if (window.AudioPlayer) {
+        AudioPlayer.init();
+        AudioPlayer.load(MOD_FILE_URL, function() {
+          console.log("MOD geladen, starte Musik...");
+          AudioPlayer.play();
+        });
       }
-
-      // MOD-Datei laden und abspielen
-      player.load(MOD_FILE_URL, function(buffer) {
-        console.log("MOD-Datei erfolgreich geladen, starte Wiedergabe...");
-        player.play(buffer);
-      }, function(error) {
-        console.error("Fehler beim Laden der MOD-Datei:", error);
-      });
     }
 
-    // -----------------------------------------------------------
-    // Vollbild- & Interaktions-Logik
-    // -----------------------------------------------------------
     const overlay = document.getElementById('fullscreen-overlay');
 
     function startDemo() {
@@ -117,25 +89,24 @@
 
       if (docEl.requestFullscreen) {
         docEl.requestFullscreen();
-      } else if (docEl.mozRequestFullScreen) { /* Firefox */
+      } else if (docEl.mozRequestFullScreen) {
         docEl.mozRequestFullScreen();
-      } else if (docEl.webkitRequestFullscreen) { /* Chrome, Safari & Opera */
+      } else if (docEl.webkitRequestFullscreen) {
         docEl.webkitRequestFullscreen();
-      } else if (docEl.msRequestFullscreen) { /* IE/Edge */
+      } else if (docEl.msRequestFullscreen) {
         docEl.msRequestFullscreen();
       }
 
-      // MOD-Musik nach dem ersten Klick starten
+      // MOD-Musik nach dem Klick starten
       initAndPlayMod();
 
-      // Overlay nach dem Klick ausblenden
       overlay.style.display = 'none';
       window.removeEventListener('click', startDemo);
     }
 
     overlay.addEventListener('click', startDemo);
 
-    // 1. Szene, Kamera und Renderer erstellen
+    // 1. Szene, Kamera und Renderer
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -145,18 +116,17 @@
     renderer.setClearColor(0x000000, 1);
     document.body.appendChild(renderer.domElement);
 
-    // 2. 3D-Würfel erstellen
+    // 2. 3D-Würfel
     const cubeGeometry = new THREE.BoxGeometry();
     const cubeMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
     const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
     scene.add(cube);
 
-    // Würfelgröße & Position
     cube.scale.set(1.55, 1.55, 1.55);
     cube.position.y = 0.8;
     camera.position.z = 5;
 
-    // 3. Rasterbalken in WebGL (GPU)
+    // 3. Rasterbalken
     const rasterGroup = new THREE.Group();
     scene.add(rasterGroup);
 
@@ -189,7 +159,7 @@
       }
     }
 
-    // 4. Laufschrift-Canvas erstellen & als Textur laden
+    // 4. Laufschrift-Canvas
     const tickerCanvas = document.createElement('canvas');
     tickerCanvas.width = 2048;
     tickerCanvas.height = 128;
@@ -239,11 +209,9 @@
     function animate(time) {
       requestAnimationFrame(animate);
 
-      // Cube Drehung
       cube.rotation.x += 0.01;
       cube.rotation.y += 0.01;
 
-      // Rasterbalken Animation
       const t = time * 0.003;
       rasterBars.forEach(bar => {
         const { layer, index, baseY } = bar.userData;
@@ -251,7 +219,6 @@
         bar.position.y = baseY + wave;
       });
 
-      // Laufschrift-Geschwindigkeit
       textScrollOffset += 0.0025;
       tickerTexture.offset.x = textScrollOffset;
 
