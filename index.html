@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Three.js Demo - Smooth GPU with MOD Player</title>
+  
+  <!-- Retro-Pixel-Font für die Laufschrift laden -->
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #000000;
+      font-family: 'Press Start 2P', monospace;
+    }
+
+    /* Start-Overlay für den Vollbild-Klick & Audio-Start */
+    #fullscreen-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.9);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: #00ff00;
+      font-size: 1.5rem;
+      cursor: pointer;
+      z-index: 100;
+      text-align: center;
+      padding: 20px;
+    }
+
+    /* Fliegendes Logo oben */
+    #logo-container {
+      position: absolute;
+      top: 20px;
+      left: 0;
+      width: 100%;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    #flying-logo {
+      height: 200px;
+      position: absolute;
+      animation: bounceLeftRight 4s ease-in-out infinite alternate;
+      will-change: transform;
+    }
+
+    @keyframes bounceLeftRight {
+      0% { transform: translate3d(0vw, 0, 0); }
+      100% { transform: translate3d(calc(100vw - 100%), 0, 0); }
+    }
+  </style>
+
+  <!-- External Libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Chiptune2.js Player & LibXM fuer Tracker-Module (.mod, .xm, .s3m, .it) -->
+  <script src="https://cdn.jsdelivr.net/gh/deskjet/chiptune2.js@master/libxmp.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/deskjet/chiptune2.js@master/chiptune2.js"></script>
+</head>
+<body>
+
+  <!-- Klick-Overlay für den Vollbild- und Musikstart -->
+  <div id="fullscreen-overlay">
+    CLICK ANYWHERE TO START DEMO
+  </div>
+
+  <!-- Logo oben -->
+  <div id="logo-container">
+    <img id="flying-logo" src="BB_Logo.jpg" alt="Bonzai Bros Logo">
+  </div>
+
+  <script>
+    // -----------------------------------------------------------
+    // MOD Audio Player Setup
+    // -----------------------------------------------------------
+    const MOD_FILE_URL = 'music.mod';
+    
+    let player = null;
+    let isAudioInitialized = false;
+
+    function initAndPlayMod() {
+      if (isAudioInitialized) return;
+      isAudioInitialized = true;
+
+      player = new ChiptuneJsPlayer(new ChiptuneJsConfig({
+        repeatCount: -1 // Endlos-Schleife (-1)
+      }));
+
+      // AudioContext explizit durch die Benutzerinteraktion starten
+      if (player.context && player.context.state === 'suspended') {
+        player.context.resume();
+      }
+
+      // MOD-Datei laden und abspielen
+      player.load(MOD_FILE_URL, function(buffer) {
+        console.log("MOD-Datei erfolgreich geladen, starte Wiedergabe...");
+        player.play(buffer);
+      }, function(error) {
+        console.error("Fehler beim Laden der MOD-Datei:", error);
+      });
+    }
+
+    // -----------------------------------------------------------
+    // Vollbild- & Interaktions-Logik
+    // -----------------------------------------------------------
+    const overlay = document.getElementById('fullscreen-overlay');
+
+    function startDemo() {
+      const docEl = document.documentElement;
+
+      if (docEl.requestFullscreen) {
+        docEl.requestFullscreen();
+      } else if (docEl.mozRequestFullScreen) { /* Firefox */
+        docEl.mozRequestFullScreen();
+      } else if (docEl.webkitRequestFullscreen) { /* Chrome, Safari & Opera */
+        docEl.webkitRequestFullscreen();
+      } else if (docEl.msRequestFullscreen) { /* IE/Edge */
+        docEl.msRequestFullscreen();
+      }
+
+      // MOD-Musik nach dem ersten Klick starten
+      initAndPlayMod();
+
+      // Overlay nach dem Klick ausblenden
+      overlay.style.display = 'none';
+      window.removeEventListener('click', startDemo);
+    }
+
+    overlay.addEventListener('click', startDemo);
+
+    // 1. Szene, Kamera und Renderer erstellen
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setClearColor(0x000000, 1);
+    document.body.appendChild(renderer.domElement);
+
+    // 2. 3D-Würfel erstellen
+    const cubeGeometry = new THREE.BoxGeometry();
+    const cubeMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
+    const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+    scene.add(cube);
+
+    // Würfelgröße & Position
+    cube.scale.set(1.55, 1.55, 1.55);
+    cube.position.y = 0.8;
+    camera.position.z = 5;
+
+    // 3. Rasterbalken in WebGL (GPU)
+    const rasterGroup = new THREE.Group();
+    scene.add(rasterGroup);
+
+    const numLayers = 5;
+    const barsPerLayer = 16;
+    const rasterBars = [];
+
+    const greenColors = [
+      0x002200, 0x004400, 0x006600, 0x008800,
+      0x00aa00, 0x00cc00, 0x00ee00, 0x66ff66,
+      0xaaffaa, 0x66ff66, 0x00ee00, 0x00cc00,
+      0x00aa00, 0x008800, 0x006600, 0x003300
+    ];
+
+    const planeGeo = new THREE.PlaneGeometry(30, 0.05);
+
+    for (let layer = 0; layer < numLayers; layer++) {
+      for (let i = 0; i < barsPerLayer; i++) {
+        const mat = new THREE.MeshBasicMaterial({ color: greenColors[i], side: THREE.DoubleSide });
+        const bar = new THREE.Mesh(planeGeo, mat);
+        
+        bar.userData = {
+          layer: layer,
+          index: i,
+          baseY: -1.0 - (layer * 0.22)
+        };
+        
+        rasterGroup.add(bar);
+        rasterBars.push(bar);
+      }
+    }
+
+    // 4. Laufschrift-Canvas erstellen & als Textur laden
+    const tickerCanvas = document.createElement('canvas');
+    tickerCanvas.width = 2048;
+    tickerCanvas.height = 128;
+    const tickerCtx = tickerCanvas.getContext('2d');
+
+    const scrollText = "+++ BONZAI BROS - CULTIVATING SILICON +++ WILLKOMMEN IN DER 3D-WELT +++ HIER TEXT ANPASSEN +++        ";
+
+    function drawTickerText() {
+      tickerCtx.clearRect(0, 0, tickerCanvas.width, tickerCanvas.height);
+      
+      const gradient = tickerCtx.createLinearGradient(0, 0, 0, tickerCanvas.height);
+      gradient.addColorStop(0, '#fff2a3');
+      gradient.addColorStop(0.5, '#ffd700');
+      gradient.addColorStop(1, '#b8860b');
+
+      tickerCtx.font = '32px "Press Start 2P", monospace';
+      tickerCtx.fillStyle = gradient;
+      tickerCtx.strokeStyle = '#000000';
+      tickerCtx.lineWidth = 6;
+      
+      tickerCtx.strokeText(scrollText, 0, 80);
+      tickerCtx.fillText(scrollText, 0, 80);
+      
+      if (tickerTexture) tickerTexture.needsUpdate = true;
+    }
+
+    const tickerTexture = new THREE.CanvasTexture(tickerCanvas);
+    tickerTexture.wrapS = THREE.RepeatWrapping;
+    tickerTexture.wrapT = THREE.ClampToEdgeWrapping;
+
+    const tickerGeo = new THREE.PlaneGeometry(16, 1.0);
+    const tickerMat = new THREE.MeshBasicMaterial({ 
+      map: tickerTexture, 
+      transparent: true,
+      depthTest: false
+    });
+    const tickerMesh = new THREE.Mesh(tickerGeo, tickerMat);
+    tickerMesh.position.y = -2.55;
+    scene.add(tickerMesh);
+
+    drawTickerText();
+    document.fonts.ready.then(drawTickerText);
+
+    // 5. Render-Schleife
+    let textScrollOffset = 0;
+
+    function animate(time) {
+      requestAnimationFrame(animate);
+
+      // Cube Drehung
+      cube.rotation.x += 0.01;
+      cube.rotation.y += 0.01;
+
+      // Rasterbalken Animation
+      const t = time * 0.003;
+      rasterBars.forEach(bar => {
+        const { layer, index, baseY } = bar.userData;
+        const wave = Math.sin(t * (1 + layer * 0.2) + index * 0.15) * 0.2;
+        bar.position.y = baseY + wave;
+      });
+
+      // Laufschrift-Geschwindigkeit
+      textScrollOffset += 0.0025;
+      tickerTexture.offset.x = textScrollOffset;
+
+      renderer.render(scene, camera);
+    }
+    
+    animate(0);
+
+    // 6. Resizing Support
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
